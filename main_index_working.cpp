@@ -5,7 +5,6 @@
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <dash.h>
 #include <index.h>
 #include <security.h>
 #include <ArduinoJson.h>
@@ -38,16 +37,6 @@ struct CANFrameData {
 CANFrameData canFrames[16];
 uint16_t activeCANID = 0; // Currently selected CAN ID for detailed plotting
 
-// Dashboard data structure
-struct DashboardData {
-  float speed;      // km/h from CAN ID 0x320 byte 3
-  float rpm;        // RPM from CAN ID 0x280 (byte3 * 256 + byte2) / 4
-  float throttle;   // % from CAN ID 0x380 byte 2 (0-250 = 0-100%)
-  float fuel;       // km/L (placeholder)
-  float temp;       // °C (placeholder)
-};
-
-DashboardData dashData = {0, 0, 0, 0, 0};
 
 void sendAvailableCANIDs() {
   JsonDocument doc;
@@ -63,52 +52,6 @@ void sendAvailableCANIDs() {
   ws.textAll(jsonString);
 }
 
-void sendDashboardData() {
-  JsonDocument doc;
-  doc["type"] = "dashboardData";
-  doc["speed"] = dashData.speed;
-  doc["rpm"] = dashData.rpm;
-  doc["throttle"] = dashData.throttle;
-  doc["fuel"] = dashData.fuel;
-  doc["temp"] = dashData.temp;
-  doc["timestamp"] = millis();
-  
-  String jsonString;
-  serializeJson(doc, jsonString);
-  ws.textAll(jsonString);
-}
-
-void updateDashboardData(uint16_t canID, uint8_t* data, uint8_t length) {
-  switch (canID) {
-    case 0x320: // Speed
-      if (length > 3) {
-        dashData.speed = data[6] + 5; // byte 3 as km/h
-      }
-      break;
-      
-    case 0x280: // RPM
-      if (length > 3) {
-        // RPM = (byte3 * 256 + byte2) / 4
-        uint16_t rawRPM = (data[3] * 256) + data[2];
-        dashData.rpm = rawRPM / 4.0;
-      }
-      break;
-      
-    case 0x380: // Throttle
-      if (length > 2) {
-        // Throttle: byte 2, 0-250 = 0-100%
-        dashData.throttle = (data[2] / 250.0) * 100.0;
-      }
-      break;
-      
-    // Add more cases for fuel and temperature when you know the CAN IDs
-    default:
-      // For now, simulate fuel and temperature data
-      dashData.fuel = 15.5 + (millis() % 1000) / 100.0; // Simulated fuel economy
-      dashData.temp = 85 + (millis() % 500) / 50.0;     // Simulated temperature
-      break;
-  }
-}
 
 void handleWebSocketMessage(String message) {
   JsonDocument doc;
@@ -212,14 +155,7 @@ void setup() {
   });
   
   server.addHandler(&ws);
-  
-  // Dashboard as home page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send_P(200, "text/html", dash_html);
-  });
-  
-  // Expert mode page
-  server.on("/expert", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send_P(200, "text/html", index_html);
   });
   
@@ -306,9 +242,6 @@ void loop() {
         canFrames[index].data[i] = receivedFrame.data[i];
       }
       
-      // Update dashboard data for specific CAN IDs
-      updateDashboardData(receivedFrame.id, receivedFrame.data, receivedFrame.len);
-      
       digitalWrite(LED_CAN, HIGH);
     }
 
@@ -325,14 +258,7 @@ void loop() {
     Serial.println();
   }
   
-  // Send dashboard data for main dashboard
-  static unsigned long lastDashSend = 0;
-  if (millis() - lastDashSend > 20) { // Send every 100ms for smooth dashboard updates
-    sendDashboardData();
-    lastDashSend = millis();
-  }
-  
-  // Send byte data for selected CAN ID (expert mode)
+  // Send byte data for selected CAN ID
   static unsigned long lastByteSend = 0;
   if (millis() - lastByteSend > 50) { // Send every 50ms for smooth plotting
     sendByteData();
@@ -341,7 +267,7 @@ void loop() {
   
   // Send status updates less frequently
   static unsigned long lastStatusSend = 0;
-  if (millis() - lastStatusSend > 500) { // Send every 500ms
+  if (millis() - lastStatusSend > 500) { // Send every 1 second
     sendStatusUpdate();
     lastStatusSend = millis();
     digitalWrite(LED_CAN, LOW);
