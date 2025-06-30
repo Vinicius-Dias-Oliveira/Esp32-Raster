@@ -82,7 +82,7 @@ void updateDashboardData(uint16_t canID, uint8_t* data, uint8_t length) {
   switch (canID) {
     case 0x320: // Speed
       if (length > 3) {
-        dashData.speed = data[6] + 5; // byte 3 as km/h
+        dashData.speed = data[6]; // byte 3 as km/h
       }
       break;
       
@@ -100,12 +100,17 @@ void updateDashboardData(uint16_t canID, uint8_t* data, uint8_t length) {
         dashData.throttle = (data[2] / 250.0) * 100.0;
       }
       break;
+
+    case 0x288: // Temperature
+      if (length > 2) {
+        // 0 - 255 // 50 - 130
+        dashData.temp = (data[1] * 130) / 255;
+      }
+      break;
       
     // Add more cases for fuel and temperature when you know the CAN IDs
     default:
-      // For now, simulate fuel and temperature data
-      dashData.fuel = 15.5 + (millis() % 1000) / 100.0; // Simulated fuel economy
-      dashData.temp = 85 + (millis() % 500) / 50.0;     // Simulated temperature
+      dashData.fuel = 0;
       break;
   }
 }
@@ -309,14 +314,14 @@ void loop() {
       // Update dashboard data for specific CAN IDs
       updateDashboardData(receivedFrame.id, receivedFrame.data, receivedFrame.len);
       
-      digitalWrite(LED_CAN, HIGH);
+      // digitalWrite(LED_CAN, HIGH);
     }
 
     // Debug output
     Serial.print("ID:0x");
     Serial.print(receivedFrame.id, HEX);
-    Serial.print(" LEN:");
-    Serial.print(receivedFrame.len);
+    // Serial.print(" LEN:");
+    // Serial.print(receivedFrame.len);
     Serial.print(" DATA:");
     for (int i = 0; i < receivedFrame.len; i++) {
       Serial.print(receivedFrame.data[i]);
@@ -327,26 +332,25 @@ void loop() {
   
   // Send dashboard data for main dashboard
   static unsigned long lastDashSend = 0;
-  if (millis() - lastDashSend > 20) { // Send every 100ms for smooth dashboard updates
+  if (millis() - lastDashSend > 16) { 
     sendDashboardData();
     lastDashSend = millis();
   }
   
   // Send byte data for selected CAN ID (expert mode)
   static unsigned long lastByteSend = 0;
-  if (millis() - lastByteSend > 50) { // Send every 50ms for smooth plotting
+  if (millis() - lastByteSend > 50) { 
     sendByteData();
     lastByteSend = millis();
   }
   
   // Send status updates less frequently
   static unsigned long lastStatusSend = 0;
-  if (millis() - lastStatusSend > 500) { // Send every 500ms
+  if (millis() - lastStatusSend > 500) { 
     sendStatusUpdate();
     lastStatusSend = millis();
-    digitalWrite(LED_CAN, LOW);
+    // digitalWrite(LED_CAN, LOW);
   }
   
-  // Clean websocket clients
   ws.cleanupClients();
 }
